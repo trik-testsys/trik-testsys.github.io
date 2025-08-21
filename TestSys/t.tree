@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE instance-profile
+        SYSTEM "https://resources.jetbrains.com/writerside/1.0/product-profile.dtd">
+
+<instance-profile id="t"
+                 name="TestSys"
+                 start-page="navigation.md">
+    <toc-element topic="navigation.md"/>
+    <toc-element topic="management.md"/>
+    <toc-element topic="judge.md"/>
+    <toc-element topic="student.md"/>
+    <toc-element topic="manager.md"/>
+    <toc-element topic="watcher.md"/>
+    <toc-element topic="developer.md"/>
+    <toc-element topic="admin.md"/>
+</instance-profile>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE vars SYSTEM "https://resources.jetbrains.com/writerside/1.0/vars.dtd">
+<vars>
+    <var name="product" value="TestSys"/>
+    <var name="site_link" value="https://olymp.trikset.com"/>
+    <var name="registration_code_distributor" value="TODO"/>
+    <var name="manager_alias" value="TODO"/>
+    <var name="video_header_default_state" value="collapsed"/>
+    <var name="text_header_default_state" value="expanded"/>
+</vars>
