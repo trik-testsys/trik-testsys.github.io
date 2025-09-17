@@ -1,496 +1,377 @@
-# Разработчик задач
+# Развертывание
 
-**<tooltip term="developer">Разработчик задач</tooltip>** является ролью ответственной за разработку задач.
-Данный пользователь имеет возможность создавать задачи, формировать и публиковать туры. 
+> Данный раздел предназначен исключительно для разработчиков
+{style="warning"}
 
-## Подготовка задач {id="developer-chapter-prepare-task"}
+В данном разделе предоставлена информация по конфигурации и развертыванию **TestSys**. 
+TestSys состоит из двух единиц развертывания --- клиента и сервера проверки, каждый из которых разворачивается при 
+помощи docker-compose файла. Обе единицы могут быть развернуты как на одном сервере, так и на разных. 
+Далее будут подробно рассмотрена конфигурация систем и предложен вариант полного развертывания.
 
-Для создания задачи требуется предварительно загрузить необходимые файлы. 
-К задаче можно прикрепить любое количество полигонов, одно упражнение, одно эталонное решение и 
-опционально условие задачи.
+## Конфигурация клиента
 
-- *Полигон* — xml файл с [ограничениями](https://help.trikset.com/studio/2d-model/restrictions) который будет использоваться при проверке 
-- *Упражнение* — qrs файл, которой будет предоставлен участнику в качестве примера
-- *Эталонное решение* — qrs файл, который будет использован для проверки корректности полигонов
+Для развертывания клиента используется следующий docker-compose файл:
 
-После загрузки всех необходимых файлов вы можете создать задачу и запустить тестирование эталонного решения.
-Далее, рекомендуется ознакомиться с результатами тестирования и убедиться, что эталонное решение получает ожидаемое 
-количество баллов. 
+```docker
+version: '3'
 
-## Разработка полигона {id="developer-chapter-prepare-poly"}
+services:
+  mysql_host:
+    image: mysql:9.1.0
+    restart: always
 
-Первым этапом разработки полигона является расположение объектов окружения и разметки зон в TRIK Studio.
-После этого необходимо сохранить модель мира на диск. 
-Дальнейшая работа будет происходить с сохранным файлом.
+    environment:
+      MYSQL_USER: testsys
+      MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+      MYSQL_DATABASE: testsys_db
+      MYSQL_PASSWORD: p@ssw0rd
 
-Данная секция направленна на знакомство с *ограничениями*, с подробной информацией можно ознакомиться в 
-[документации](https://help.trikset.com/studio/2d-model/restrictions) к TRIK Studio.
-Ограничения добавляются в специальный блок 
-`constraints` в сохраненном файле. Также важной частью ограничений являются 
-[логические зоны](https://help.trikset.com/studio/2d-model/settings#less-than-region-greater-than), 
-они добавляются в блок `regions`.
+    ports:
+      - "3306:3306"
 
-> Ограничения описываются в формате xml, основным элементом xml является 
-> [тэг](https://help.trikset.com/studio/2d-model/settings#tegi), 
-> тэг может описываться в двух форматах `<element1>...</element1>` (для элементов с внутренней структурой) 
-> или `<element1/>` (без внутренней структуры). Также у тэгов могут быть параметры 
-> `<element1 param="value">...</element1>` или
-> `<element1 param="value"/>`
+    healthcheck:
+      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
 
-```xml
-<?xml version='1.0' encoding='utf-8'?>
-<root version="20190819">
-    <world>
-        <regions>
-            <!-- Сюда добавляются логические зоны -->
-        </regions>
-    </world>
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+
+  web-client:
+    image: testsystrik/trik-testsys-web-client:<tag>
+    restart: always
+
+    environment:
+      - JAVA_OPTIONS=-server -Xmx16g -Xms2g -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/web-client/dumps/ -XX:+CrashOnOutOfMemoryError -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:ParallelGCThreads=6 -XX:ConcGCThreads=3
+      - TRIK_STUDIO_VERSION=testsystrik/trik-studio:<tag-trik-studio>
+
+    ports:
+      - "8888:8888"
+    expose:
+      - "8888"
+
+    volumes:
+      - ./logs/web-client:/web-client/logs
+      - ./data:/web-client/data
+      - ./dumps:/web-client/dumps
+    links:
+      - mysql_host:mysql_host
+
+    depends_on:
+      mysql_host:
+        condition: service_healthy
+```
+
+Перед использованием данного файла рекомендуется сравнить его с
+[актуальной версией](https://github.com/Pupsen-Vupsen/trik-testsys-web-client/blob/master/docker-compose.yml)
+и, в случае обнаружения расхождений, обратиться к разработчикам для уточнений по изменениям.
+
+Рекомендуется использовать сервер с количеством нативных потоков не менее 4. 
+Также сервер должен обладать оперативной памятью в объеме не менее 6 Гб.
+
+> Предоставленные параметры сервера подходят для использования небольшой группой учеников не более 20 человек,
+> в случае необходимости масштабирования рекомендуется обратиться к разработчикам.
+{style="note"}
+
+Вместо `<tag-trik-studio>` необходимо использовать последний
+[релиз](https://hub.docker.com/r/testsystrik/trik-studio/tags)
+`testsystrik/trik-studio`.
+
+Вместо `<tag>` необходимо использовать последний
+[релиз](https://hub.docker.com/r/testsystrik/trik-testsys-web-client/tags)
+`testsystrik/trik-testsys-web-client`.
+
+> Рекомендуется избегать использования тега latest поскольку это затрудняет
+> отслеживание того, какая версия образа запущена,
+> и затрудняет откат до нужной версии.
+{style="note"}
+
+Последним требование является наличие директорий `web-client/logs`, `web-client/data`, `web-client/dumps` 
+в том же расположении, что и docker-compose файл.
+
+## Конфигурация сервера проверки
+
+Для развертывания сервера проверки используется следующий docker-compose файл:
+
+```docker
+services:
+
+  grading-node:
+    image: testsystrik/grading-node:<tag>
+    restart: always
+    environment:
+      - MOUNTED_DIRECTORY=/grading-node-workspace
+      - HOST_DIRECTORY=${PWD}/grading-node-workspace
+      - INNER_TIMEOUT_SECONDS=300
+      - ASPNETCORE_HTTP_PORTS=
+      - NODE_ID=0
+      - WORKERS_COUNT=<uint>
+    volumes:
+      - ./grading-node-workspace:/grading-node-workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - 8080:8080
+```
+
+Перед использованием данного файла рекомендуется сравнить его с 
+[актуальной версией](https://github.com/Pupsen-Vupsen/trik-testsys-grading-node/blob/main/docker-compose.yml) 
+и, в случае обнаружения расхождений, обратиться к разработчикам для уточнений по изменениям. 
+
+Ключевым параметром в данном файле является `WORKERS_COUNT`, который отвечает 
+за количество одновременно проверяемых решений.
+Данный параметр следует установить равным `THREADS_COUNT - 2`, где `THREADS_COUNT` количество нативных потоков 
+предназначенных для данного приложения. Также сервер должен обладать оперативной памятью в объеме не менее 
+`1 Гб * WORKERS_COUNT`.
+
+Вместо `<tag>` необходимо использовать последний 
+[релиз](https://hub.docker.com/r/testsystrik/grading-node/tags) 
+`testsystrik/grading-node`. 
+
+> Рекомендуется избегать использования тега latest поскольку это затрудняет 
+> отслеживание того, какая версия образа запущена, 
+> и затрудняет откат до нужной версии.
+{style="note"}
+
+Последним требование является наличие директории `grading-node-workspace` в том же расположении, 
+что и docker-compose файл.
+
+## Возможный вариант развертывания
+
+В данном разделе описан вариант полного развертывания 
+включая конфигурацию вспомогательного окружения.
+Подразумевается использование операционной системы Ubuntu 18 или Ubuntu 20.
+Схематичное описание системы представлено на следующей диаграмме.
+
+```mermaid
+flowchart TD
+    U[User]
+    NginxRP[Nginx Reverse Proxy]
+    NginxHTTPs[Nginx HTTPs Redirect]
+    UFW[UFW]
+    IsHTTPs([Is HTTPs?])
+    DockerApp[Dockerized Application]
     
-    <constraints>
-        <!-- Сюда добавляются ограничения -->
-    </constraints>
-</root>
+    U-->UFW
+    UFW-->IsHTTPs
+    IsHTTPs-- Yes -->NginxRP
+    IsHTTPs-- No -->NginxHTTPs
+    NginxHTTPs-->NginxRP
+    NginxRP-->DockerApp
 ```
 
-Самым простым ограничением является ограничение на время выполнения, оно выглядит следующим образом 
-`<timelimit value="60000"/>`. 
-Значение указывается в миллисекундах, в нашем примере ограничение составляет одну минуту. 
+### Необходимые пакеты
+ 
+Перед установкой необходимых пакетов рекомендуется обновить локальный индекс пакетов следующей командой:
 
-> Не рекомендуется устанавливать ограничение на выполнение более 3 минут на одно поле и
-> более 12 минут на все поля в рамках одной задачи.
-> { style="warning" }
-
-Следующим важным видом ограничений является `constraint`. Данный тип ограничения позволяет 
-выполнять произвольные проверки. Рассмотрим подробнее какие параметры у него есть.
-
-- `checkOnce` Если в значении стоит true, то ограничение будет
-проверено 1 раз при старте программы и больше проверяться не будет.
-- `failMessage` Сообщение об ошибке, которое будет показано при нарушении ограничения.
-
-
-Внутри блока `constraint` должно быть описано условие, этим условием может быть сравнение некоторых значений,
-нахождение робота в определенной зоне и другое. 
-Рассмотрим несколько примеров, следующее ограничение проверяет при запуске, 
-что на порту А1 установлен инфракрасный датчик расстояния.
-
-```xml
-<constraint checkOnce="true" failMessage="Неправильная конфигурация робота">
-    <equals>
-        <typeOf objectId="robot1.A1"/>
-        <string value="twoDModel::robotModel::parts::RangeSensor"/>
-    </equals>
-</constraint>
+```bash
+sudo apt update
 ```
 
-В данном примере используются следующие конструкции:
-- `equals` Проверка равенства значений
-- `<string value="twoDModel::robotModel::parts::RangeSensor"/>` Создание строкового значения
-- `<typeOf objectId="robot1.A1"/>` Получение типа датчика установленного на соответствующем порту
+Все необходимые пакеты, кроме docker, устанавливаются из apt репозитория:
 
-Здесь и далее будут встречаться новые конструкции, со всеми ними можно ознакомиться 
-в [документации](https://help.trikset.com/studio/2d-model/restrictions) TRIK Studio.
-
-
-Следующее ограничение проверяет, что робот находится в допустимом регионе
-на протяжении всего времени выполнения программы.
-
-```xml
-<constraint failMessage="Робот покинул допустимую зону!">
-    <inside objectId="robot1" regionId="zone1"/>
-</constraint>
+```bash
+sudo apt install nginx ufw
 ```
 
-На случай если условие для ограничения состоит из нескольких компонентов есть специальный блок `conditions`.
-Данный блока позволяет указывать несколько условий и связывать их логически **И** (and) или **ИЛИ** (or).
-Тип связки указывается с помощью параметра `glue`. Рассмотрим пример ограничения проверяющего, 
-что у робота на портах А1 и A2 установлен инфракрасный датчик расстояния.
+Установка docker подробно описана в следующем [руководстве](https://docs.docker.com/engine/install/ubuntu/).
 
-```xml
-<constraint checkOnce="true" failMessage="Неправильная конфигурация робота">
-    <conditions glue="and">
-        <equals>
-            <typeOf objectId="robot1.A1"/>
-            <string value="twoDModel::robotModel::parts::RangeSensor"/>
-        </equals>
-        <equals>
-            <typeOf objectId="robot1.A2"/>
-            <string value="twoDModel::robotModel::parts::RangeSensor"/>
-        </equals>
-    </conditions>
-</constraint>
+
+### Совместимость ufw и docker
+
+> Пропуск данного этапа конфигурации ведет к уязвимостям в безопасности
+{style="warning"}
+
+По умолчанию когда Docker обходит правила ufw и к опубликованным портам можно получить доступ извне.
+Подробное описание проблемы и ее решения приведены в скудеющем [репозитории](https://github.com/chaifeng/ufw-docker).
+В данном разделе приведен один из вариантов устранения проблемы.
+
+Измените файл конфигурации ufw `/etc/ufw/after.rules` и добавьте следующие правила в конец файла:
+```
+# BEGIN UFW AND DOCKER
+*filter
+:ufw-user-forward - [0:0]
+:ufw-docker-logging-deny - [0:0]
+:DOCKER-USER - [0:0]
+-A DOCKER-USER -j ufw-user-forward
+
+-A DOCKER-USER -j RETURN -s 10.0.0.0/8
+-A DOCKER-USER -j RETURN -s 172.16.0.0/12
+-A DOCKER-USER -j RETURN -s 192.168.0.0/16
+
+-A DOCKER-USER -p udp -m udp --sport 53 --dport 1024:65535 -j RETURN
+
+-A DOCKER-USER -j ufw-docker-logging-deny -p tcp -m tcp --tcp-flags FIN,SYN,RST,ACK SYN -d 192.168.0.0/16
+-A DOCKER-USER -j ufw-docker-logging-deny -p tcp -m tcp --tcp-flags FIN,SYN,RST,ACK SYN -d 10.0.0.0/8
+-A DOCKER-USER -j ufw-docker-logging-deny -p tcp -m tcp --tcp-flags FIN,SYN,RST,ACK SYN -d 172.16.0.0/12
+-A DOCKER-USER -j ufw-docker-logging-deny -p udp -m udp --dport 0:32767 -d 192.168.0.0/16
+-A DOCKER-USER -j ufw-docker-logging-deny -p udp -m udp --dport 0:32767 -d 10.0.0.0/8
+-A DOCKER-USER -j ufw-docker-logging-deny -p udp -m udp --dport 0:32767 -d 172.16.0.0/12
+
+-A DOCKER-USER -j RETURN
+
+-A ufw-docker-logging-deny -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix "[UFW DOCKER BLOCK] "
+-A ufw-docker-logging-deny -j DROP
+
+COMMIT
+# END UFW AND DOCKER
 ```
 
-Для выполнения действий перед началом работы программы есть специальный блок `init`. Его можно использовать, например,
-для инициализации переменной в которой будут храниться набранные баллы или вывода приветственного сообщения.
+После изменения файла перезапустите ufw используя:
 
-```xml
-<init>
-    <setter name="score">
-        <int value="0"/>
-    </setter>
-    <message text="Приветственное сообщение"/>
-</init>
+```bash
+sudo ufw reload
 ```
 
-Иногда возникает необходимость не только проверить какое-то условие, но и выполнить определенные действия 
-во время работы программы, для таких ситуаций существует блок `event`. 
-Событие состоит из условия и триггера (действий, которые необходимо выполнить). 
-Также блок `event` имеет ряд параметров.
+Также рекомендуется перезапустить сервер.
 
-- `settedUpInitially` Атрибут, позволяющий указать взведено ли событие при старте программы. 
-Событие может быть взведено или спущено (setted up и dropped). 
-Во взведенном состоянии событие выполняет свой триггер по выполнению своего условия, 
-в спущенном оно просто игнорируется системой.
-- `id` Уникальный идентификатор события. По этому идентификатору
-можно обращаться к данному событию из других. Опциональный.
-- `dropsOnFire` Логический атрибут, который указывает
-продолжать ли быть событию взведенным после его срабатывания или нет.
+### Конфигурация ufw
 
-Рассмотрим событие, выводящее консоль сообщение о первом посещении зоны финиша.
+> Пропуск данного этапа конфигурации ведет к уязвимостям в безопасности
+{style="warning"}
 
-```xml
-<event id="finish checker" settedUpInitially="true" dropsOnFire="true">
-	<condition>
-		<inside objectId="robot1" regionId="finish"/>
-	</condition>
-	<trigger>
-		<message text="Вы достигли финиша"/>
-	</trigger>
-</event>
+Следующим этапом после установки пакетов является конфигурация ufw.
+В первую очередь необходимо установить политики по умолчанию, 
+рекомендуется отклонять все входящие соединения и разрешать все исходящие. 
+
+```bash
+sudo ufw default deny incoming
 ```
 
-Данное событие изначально взведено (так как нет дополнительных предусловий) и перестанет быть 
-взведенным после выполнения (так как мы хотим сообщить только о первом посещении).
-
-Одним из важных действий разрешенных в блоке `trigger` является `success`, 
-при его исполнении программа завершит работу без ошибок. Данное действие обязательно 
-должно выполняться в триггерах проверяющих завершение выполнения задания. Дополним предыдущий пример.
-
-```xml
-<event id="finish checker" settedUpInitially="true" dropsOnFire="true">
-	<condition>
-		<inside objectId="robot1" regionId="finish"/>
-	</condition>
-	<trigger>
-		<message text="Вы достигли финиша"/>
-        <success/>
-	</trigger>
-</event>
+```bash
+sudo ufw default allow outgoing
 ```
 
-С `success` связан одно особое событие с `id="on_success"`, 
-данный триггер выполняется после завершения работы программы. Его удобно использовать, например, 
-для вывода набранных баллов.
+Далее необходимо разрешить ssh подключения используя следующую команду:
 
-```xml
-<event id="on_success">
-    <condition>
-        <equals>
-            <bool value="true"/>
-            <bool value="true"/>
-        </equals>
-    </condition>
-	<trigger>
-        <message text="Набрано баллов: %\text1%" >
-            <replace var="text1">
-                <variableValue name="score"/>
-            </replace>
-        </message>
-	</trigger>
-</event>
+```bash
+sudo ufw allow ssh
 ```
 
-> Для распознавания TestSys результата проверки сообщение должно
-> соответствовать следующему формату: "Набрано баллов: х", где х – количество баллов. 
-> В случае отсутствия такого вывода все решения будут оценены в 0 баллов.
-> { style="warning" }
+Также необходимо разрешить http и https подключения:
 
-Рассмотрим процесс разработки ограничений для задачи, в которой робот должен посетить по порядку 3 зоны:
-за посещение каждой зоны начисляется 10 баллов.
-Также робот не должен покидать границы рабочей зоны и остановиться в последней зоне. 
-В данном примере существенной роли не играет какие датчики использует робот, 
-как он навигируется между зонами и как расположены сами зоны. Выбор
-этих параметров остается на усмотрение пользователя.
-
-Сначала необходимо настроить конфигурацию робота и другие параметры в TRIK Studio, 
-а затем сохранить модель мира. 
-Далее представлен пример добавления логических зон и ограничений для описанной задачи. 
-
-
-```xml
-<?xml version='1.0' encoding='utf-8'?>
-<root version="20190819">
-
-    <!-- Неизменно относительно сохраненного файла кроме regions -->
-    <world>
-        <walls/>
-        <skittles/>
-        <balls/>
-        <colorFields/>
-        <images/>
-        <!-- Логические зоны -->
-        <regions>
-            <region filled="true" text="work zone" textY="0" y="0" visible="true" width="1000" id="work_zone" type="rectangle" color="#00aaaa" height="1000" x="0" textX="300"/>
-            <region filled="true" text="z1" textY="0" y="100" visible="true" width="50" id="zone1" type="rectangle" color="#ff0000" height="50" x="300" textX="0"/>
-            <region filled="true" text="z2" textY="0" y="200" visible="true" width="50" id="zone2" type="rectangle" color="#ff0000" height="50" x="600" textX="0"/>
-            <region filled="true" text="z3" textY="0" y="300" visible="true" width="50" id="zone3" type="rectangle" color="#ff0000" height="50" x="900" textX="0"/>
-        </regions>
-        <comments/>
-        <robot direction="0" position="0:0">
-            <startPosition direction="0" y="25" id="{f1dd87ed-2b26-482b-bc5d-b3cd2c0e8c79}" x="25"/>
-        </robot>
-    </world>
-    
-    <!-- Неизменно относительно сохраненного файла -->
-    <robots>
-        <robot id="trikKitRobot">
-            <sensors>
-                <sensor direction="0" type="trik::robotModel::parts::TrikInfraredSensor" port="A1###input###А1###sensorA1" position="60:26"/>
-            </sensors>
-            <wheels right="M3###output###М3###" left="M4###output###М4###"/>
-        </robot>
-    </robots>
-
-    <!-- Неизменно относительно сохраненного файла -->
-    <settings realisticPhysics="false" realisticMotors="false" realisticSensors="false"/>
-
-    <!-- Ограничения -->
-    <constraints>
-        <!-- Устанавливаем ограничения на время выполнения -->
-        <timelimit value="60000"/>
-
-        <!-- Проверяем конфигурацию робота -->
-        <!-- Значения выбраны для примера -->
-        <constraint checkOnce="true" failMessage="Неправильная конфигурация робота">
-            <equals>
-                <typeOf objectId="robot1.A1"/>
-                <string value="twoDModel::robotModel::parts::RangeSensor"/>
-            </equals>
-        </constraint>
-
-        <!-- Инициализируем переменную для хранения набранных баллов -->
-        <init>
-            <setter name="score">
-                <int value="0"/>
-            </setter>
-        </init>
-
-        <!-- Событие посещения 1 зоны -->
-        <!-- Событие взведено изначально так как это 1 зона, которую посетит робот -->
-        <!-- Событие опускается после исполнения, так как мы хотим чтобы баллы начислялись однократно --> 
-        <!-- В условие: проверяем посещение зоны 1 -->
-        <!-- В триггере: прибавляем 10 баллов -->
-        <!-- В триггере: взводим событие проверяющее посещение 2 зоны -->
-        <event id="zone1_checker" settedUpInitially="true" dropsOnFire="true">
-            <condition>
-                <inside objectId="robot1" regionId="zone1"/>
-            </condition>
-            <triggers>
-                <setter name="score">
-                    <sum>
-                        <variableValue name="score"/>
-                        <int value="10"/>
-                    </sum>
-                </setter>
-                <setUp id="zone2_checker"/>
-            </triggers>
-        </event>
-
-        <!-- Событие посещения 2 зоны -->
-        <!-- Событие не взведено изначально так как сначала робот должен посетить зону 1-->
-        <!-- Событие опускается после исполнения, так как мы хотим чтобы баллы начислялись однократно -->
-        <!-- В условие: проверяем посещение зоны 2 -->
-        <!-- В триггере: прибавляем 10 баллов -->
-        <!-- В триггере: взводим событие проверяющее посещение 3 зоны -->
-        <event id="zone2_checker" settedUpInitially="false" dropsOnFire="true">
-            <conditions glue="and">
-                <inside objectId="robot1" regionId="zone2"/>
-            </conditions>
-            <triggers>
-                <setter name="score">
-                    <sum>
-                        <variableValue name="score"/>
-                        <int value="10"/>
-                    </sum>
-                </setter>
-                <setUp id="zone3_checker"/>
-            </triggers>
-        </event>
-
-        <!-- Событие посещения 3 зоны -->
-        <!-- Событие не взведено изначально так как сначала робот должен посетить зону 2-->
-        <!-- Событие опускается после исполнения, так как мы хотим чтобы баллы начислялись однократно -->
-        <!-- В условие: проверяем посещение зоны 2 -->
-        <!-- В условие: проверяем что робот выключил моторы -->
-        <!-- В триггере: прибавляем 10 баллов -->
-        <!-- В триггере: вызываем success поскольку выполнение задачи завершено -->
-        <event id="zone3_checker" settedUpInitially="false" dropsOnFire="true">
-            <conditions glue="and">
-                <inside objectId="robot1" regionId="zone3"/>
-                <equals>
-                    <objectState object="robot1.M3.power"/>
-                    <int value="0"/>
-                </equals>
-                <equals>
-                    <objectState object="robot1.M4.power"/>
-                    <int value="0"/>
-                </equals>
-            </conditions>
-            <triggers>
-                <setter name="score">
-                    <sum>
-                        <variableValue name="score"/>
-                        <int value="10"/>
-                    </sum>
-                </setter>
-                <success/>
-            </triggers>
-        </event>
-
-        <!-- Событие покидания рабочей зоны -->
-        <!-- В триггере: вызываем success поскольку выполнение задачи завершено, так как робот покинул рабочую зону -->
-        <event id="work_zone_checker" settedUpInitially="true" dropsOnFire="true">
-            <condition>
-                <not>
-                    <inside objectId="robot1" regionId="work_zone"/>
-                </not>
-            </condition>
-            <triggers>
-                <success/>
-            </triggers>
-        </event>
-
-        <!-- Выводим набранные баллы -->
-        <event id="on_success">
-            <condition>
-                <equals>
-                    <bool value="true"/>
-                    <bool value="true"/>
-                </equals>
-            </condition>
-            <triggers>
-                <message text="Набрано баллов: %\text1%">
-                    <replace var="text1">
-                        <variableValue name="score"/>
-                    </replace>
-                </message>
-            </triggers>
-        </event>
-
-    </constraints>
-</root>
+```bash
+sudo ufw allow 'Nginx Full'
 ```
 
-## Подготовка тура {id="developer-chapter-prepare-tour"}
+Далее, рекомендуется проверить какие правила были добавлены на данный момент при помощи команды:
 
-Тур состоит из набора задач, даты начала, даты окончания и времени на прохождение.
-Дата начала и дата окончания регулируют в какое время участник сможет приступить к выполнению,
-а "время на прохождение" регулирует сколько у участника будет времени на выполнение задач.
+```bash
+sudo ufw show added
+```
 
-<snippet id="task_warning">
+> Уделите особенное внимание разрешению на ssh подключения, в противном случае вы можете потерять соединение с сервером 
+{style="warning"}
 
-> После прикрепления задачи к туру ее нельзя будет изменять, за исключением названия и описания
-> { style="warning" }
+После проверки необходимо включить ufw:
 
-</snippet>
+```bash
+sudo ufw enable
+```
 
-После того как вы создали тур его можно будет опубликовать — все организаторы из той же группы пользователей 
-(все, в случае публичной) смогут добавить его в свои группы.
+### Конфигурация nginx https redirection
 
-<snippet id="contest_warning">
+> Пропуск данного этапа конфигурации ведет к уязвимостям в безопасности
+{style="warning"}
 
-> После публикации тура нельзя менять набор задач, также нельзя отменить публикацию
-> { style="warning" }
+Поскольку протокол общения с клиентом подразумевает передачу чувствительных данных крайне не рекомендуется 
+использовать http. Одним из вариантов является запрет на использования http в параметрах ufw, 
+однако это может негативно сказаться на пользовательском опыте, поэтому рекомендуется переадресовывать http соединения 
+на https.
 
-</snippet>
+Для этого предлагается использовать следующую конфигурацию:
 
+```nginx
+server {
+    listen 80 default_server;
 
-[//]: # (--------------------------------------------------------------------------------------------------------------)
-## Вход в систему {id="developer-chapter-enter-system"}
+    server_name _;
 
-### Видео инструкция {collapsible="true" default-state="%video_header_default_state%"}
-<include from="common.md" element-id="auth-video"/>
+    return 301 https://$host$request_uri;
+}
+```
 
-### Текстовая инструкция {collapsible="true" default-state="%text_header_default_state%"}
-<include from="common.md" element-id="auth-text"/>
+Данную конфигурацию необходимо поместить в файл `/etc/nginx/sites-available/https-redirection`
+и включить с помощью команды:
 
-[//]: # (--------------------------------------------------------------------------------------------------------------)
-## Загрузка файлов {id="developer-chapter-upload-file"}
+```bash
+sudo ln -s /etc/nginx/sites-available/https-redirection /etc/nginx/sites-enabled/
+```
 
-### Видео инструкция {collapsible="true" default-state="%video_header_default_state%"}
-<video src="$PROJECT_DIR$/TestSys/video/developer/developer_upload_file.mp4" preview-src="video_preview.png"/>
+Далее проверьте, нет ли синтаксических ошибок:
 
-### Текстовая инструкция {collapsible="true" default-state="%text_header_default_state%"}
-Для загрузки файлов вам необходимо выполнить следующие шаги:
+```bash
+sudo nginx -t
+```
 
-1. Нажмите на кнопку "Файлы" в <tooltip term="menu">меню</tooltip>
-2. В открывшемся разделе нажмите на кнопку "Создать файл"
-3. Введите название и выберите тип загружаемого файла
-4. Выберите файл, который хотите загрузить
-5. Нажмите на кнопку "Создать"
+И перезапустите nginx:
 
-Созданный файл отобразится на текущей странице в соответствующей таблице.
+```bash
+sudo systemctl restart nginx
+```
 
-[//]: # (--------------------------------------------------------------------------------------------------------------)
-## Создание задачи {id="developer-chapter-create-task"}
+### Конфигурация nginx reverse proxy
 
-### Видео инструкция {collapsible="true" default-state="%video_header_default_state%"}
-<video src="$PROJECT_DIR$/TestSys/video/developer/developer_create_task.mp4" preview-src="video_preview.png"/>
+Для маршрутизирования запросов к серверу используется nginx reverse proxy. 
 
-### Текстовая инструкция {collapsible="true" default-state="%text_header_default_state%"}
-Для создания вам необходимо выполнить следующие шаги:
+Рекомендуется использовать следующий шаблон:
 
-1. Нажмите на кнопку "Задачи" в <tooltip term="menu">меню</tooltip>
-2. В открывшемся разделе нажмите на кнопку "Создать задачу"
-3. Заполните название и нажмите кнопку "Создать"
+```nginx
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
 
-Созданная задача отобразится в списке задач, далее необходимо прикрепить к ней файлы:
+    server_name <domain>;
 
-1. Нажмите на название созданной задачи
-2. Прикрепите необходимые файлы
-3. Запустите тестирование
+    access_log /var/log/nginx/proxy-access.log;
+    error_log /var/log/nginx/proxy-error.log;
 
-> Рекомендуется ориентироваться не только на статус тестирования, но и на количество набранных эталонным решением 
-> баллов, с баллами можно ознакомится при помощи инструкции "Просмотр результатов"
+    ssl_certificate /etc/letsencrypt/live/<domain>/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/<domain>/privkey.pem;
 
-[//]: # (--------------------------------------------------------------------------------------------------------------)
-## Просмотр результатов {id="developer-chapter-view-result"}
+    location / {
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_pass http://localhost:<port>/;
+    }
+}
+```
 
-### Видео инструкция {collapsible="true" default-state="%video_header_default_state%"}
-<video src="$PROJECT_DIR$/TestSys/video/developer/developer_test_tesult.mp4" preview-src="video_preview.png"/>
+Для использования данного шаблона вам необходимо получить https сертификат любым удобным способом 
+(например при помощи [Certbot](https://certbot.eff.org/)).  
+После получения сертификата необходимо заменить `<domain>` на ваше доменное имя, а `<port>` на порт клиента 
+(в случае если вы не редактировали docker-compose файл клиента это 8888).
 
-### Текстовая инструкция {collapsible="true" default-state="%text_header_default_state%"}
-Для просмотра результатов вам необходимо выполнить следующие шаги:
+После этого необходимо поместить заполненный шаблон в файл `/etc/nginx/sites-available/reverse-proxy`
+и включить конфигурацию с помощью команды:
 
-1. Нажмите на кнопку "Задачи" в <tooltip term="menu">меню</tooltip>
-2. Нажмите на название интересующей задачи
-3. В открывшемся разделе нажмите на кнопку "Результаты тестирования"
+```bash
+sudo ln -s /etc/nginx/sites-available/reverse-proxy /etc/nginx/sites-enabled/
+```
 
+Далее проверьте, нет ли синтаксических ошибок:
 
-[//]: # (--------------------------------------------------------------------------------------------------------------)
-## Создание и публикация тура {id="developer-chapter-create-tour"}
+```bash
+sudo nginx -t
+```
 
-### Видео инструкция {collapsible="true" default-state="%video_header_default_state%"}
-<video src="$PROJECT_DIR$/TestSys/video/developer/developer_contest_pipeline.mp4" preview-src="video_preview.png"/>
+И перезапустите nginx:
 
-### Текстовая инструкция {collapsible="true" default-state="%text_header_default_state%"}
-Для создания тура вам необходимо выполнить следующие шаги:
+```bash
+sudo systemctl restart nginx
+```
 
-1. Нажмите на кнопку "Туры" в <tooltip term="menu">меню</tooltip>
-2. В открывшемся разделе нажмите на кнопку "Создать тур"
-3. Заполните необходимые поля и нажмите на кнопку "Создать"
+### Запуск приложений
 
-Созданная тур отобразится в списке туров, далее необходимо прикрепить к нему задачи:
+Приложения должны запускаться в следующем порядке:
+1. Сервер проверки
+2. Клиент
 
-<include from="developer.md" element-id="task_warning"/>
+Для запуска приложения достаточно использовать следующую команду в соответствующей директории:
 
-1. Нажмите на название созданного тура
-2. Прикрепите необходимые задачи
-
-После наполнения тура задачами его можно опубликовать:
-
-<include from="developer.md" element-id="contest_warning"/>
-
-1. Нажмите на название созданного тура
-2. Выберите группу для которой хотите опубликовать тур
-3. Нажмите кнопку "Добавить группу"
+```bash
+docker compose up -d
+```
